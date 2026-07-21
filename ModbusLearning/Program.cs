@@ -1,48 +1,31 @@
-﻿using ModbusLearning.Services;
+﻿using System.IO.Ports;
+using ModbusLearning.Services;
 using ModbusLearning.Utils;
-using TouchSocket.Sockets;
 
 namespace ModbusLearning;
 
 internal class Program
 {
-    static async Task Main(string[] args)
+    static async Task Main()
     {
-        // Console.WriteLine("==== Modbus 自动轮询与数据解析标准协议学习 ====");
-        //
-        // string ip = AppConfig.GetValue("ModbusSettings:ServerIp");
-        // int port = int.Parse(AppConfig.GetValue("ModbusSettings:Port"));
-        // byte unitId = byte.Parse(AppConfig.GetValue("ModbusSettings:UnitId"));
-        // ushort startAddr = ushort.Parse(AppConfig.GetValue("ModbusSettings:StartAddress"));
-        // ushort quantity = ushort.Parse(AppConfig.GetValue("ModbusSettings:Quantity"));
-        // int interval = int.Parse(AppConfig.GetValue("ModbusSettings:PollingIntervalMs"));
-        //
-        // var client = new ModbusTcpClient(ip, port);
-        // await client.ConnectAsync();
-        //
-        // // 启动轮询,使用配置文件中的参数启动
-        // client.StartPolling(unitId, startAddr, quantity, interval);
-        //
-        // //保持主线程不退出
-        // Console.WriteLine("服务正在进行中，按回车键终止服务");
-        // Console.ReadLine();
+        Console.WriteLine("=== 项目运行菜单 ===");
+        Console.WriteLine("1、运行TCP协议的Modbus");
+        Console.WriteLine("2、运行RTU协议的Modbus");
 
-        // var client = new ModbusTcpMaster();
-        //
-        // var config = new TouchSocketConfig();
-        //
-        // config.SetRemoteIPHost(null);
-        // config.ConfigurePlugins(a =>
-        // {
-        //     a.UseReconnection<ModbusTcpMaster>(options =>
-        //     {
-        //         options.PollingInterval = TimeSpan.FromSeconds(1);
-        //     });
-        // });
-        //
-        // await client.SetupAsync(config);
-        // await client.ConnectAsync();
+        var choice = Console.ReadLine();
         
+        if ("1" == choice)
+        {
+            await RunTcpModeAsync();
+        }
+        else if ("2" == choice)
+        {
+            await RunRtuModeAsync();
+        }
+    }
+
+    private static async Task RunTcpModeAsync()
+    {
         Console.WriteLine("=== Modbus 服务端（主动等待从站连接）模式,按Control+C停止 ===");
         
         // 1. 读取服务端监听配置
@@ -58,7 +41,7 @@ internal class Program
         // 3. 实例化服务端对象
         var serverClient = new ModbusTcpServerClient(listenIp, listenPort);
 // 注册control+C
-        Console.CancelKeyPress += async (sender, eventArgs) =>
+        Console.CancelKeyPress += async (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
             await serverClient.StopAsync();
@@ -70,7 +53,40 @@ internal class Program
         // 5. 启动服务端监听（这是一个死循环，会阻塞在这里等待远程连接）
         await serverClient.StartServerAsync();
 
-        Console.WriteLine("服务已停止。");
+        Console.WriteLine("程序已停止。");
         Console.ReadLine();
+    }
+    
+    private static async Task RunRtuModeAsync()
+    {
+        Console.WriteLine("=== Modbus RTU (串口) 数据采集模式 ===");
+        Console.WriteLine("【提示】按 Ctrl+C 可优雅退出程序！");
+
+        string port = AppConfig.GetValue("RtuSettings:PortName");
+        int baud = int.Parse(AppConfig.GetValue("RtuSettings:BaudRate"));
+        string parityStr = AppConfig.GetValue("RtuSettings:Parity");
+        Parity parity = parityStr switch { "Even" => Parity.Even, "Odd" => Parity.Odd, _ => Parity.None };
+        int dataBits = int.Parse(AppConfig.GetValue("RtuSettings:DataBits"));
+        string stopStr = AppConfig.GetValue("RtuSettings:StopBits");
+        StopBits stopBits = stopStr switch { "Two" => StopBits.Two, _ => StopBits.One };
+
+        var rtuClient = new ModbusRtuClient(port, baud, parity, dataBits, stopBits);
+
+        Console.CancelKeyPress += async (_, e) =>
+        {
+            e.Cancel = true;
+            await rtuClient.StopAsync();
+        };
+
+        await rtuClient.OpenAsync();
+            
+        byte unitId = byte.Parse(AppConfig.GetValue("ModbusSettings:UnitId"));
+        ushort startAddr = ushort.Parse(AppConfig.GetValue("ModbusSettings:StartAddress"));
+        ushort quantity = ushort.Parse(AppConfig.GetValue("ModbusSettings:Quantity"));
+        int interval = int.Parse(AppConfig.GetValue("ModbusSettings:PollingIntervalMs"));
+
+        rtuClient.StartPolling(unitId, startAddr, quantity, interval);
+
+        await Task.Delay(Timeout.Infinite, rtuClient.GetCancellationToken()); // 阻塞主线程，等待 Ctrl+C
     }
 }
