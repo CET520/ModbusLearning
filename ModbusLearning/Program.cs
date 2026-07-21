@@ -3,7 +3,7 @@ using ModbusLearning.Services;
 using ModbusLearning.Utils;
 
 namespace ModbusLearning;
-
+// 主程序入口
 internal class Program
 {
     static async Task Main()
