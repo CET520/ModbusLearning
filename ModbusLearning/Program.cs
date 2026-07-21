@@ -1,5 +1,6 @@
 ﻿using ModbusLearning.Services;
 using ModbusLearning.Utils;
+using TouchSocket.Sockets;
 
 namespace ModbusLearning;
 
@@ -42,8 +43,8 @@ internal class Program
         // await client.SetupAsync(config);
         // await client.ConnectAsync();
         
-        Console.WriteLine("=== Modbus 服务端（主动等待从站连接）模式 ===");
-            
+        Console.WriteLine("=== Modbus 服务端（主动等待从站连接）模式,按Control+C停止 ===");
+        
         // 1. 读取服务端监听配置
         string listenIp = AppConfig.GetValue("ModbusTcpServer:ListenIp");
         int listenPort = int.Parse(AppConfig.GetValue("ModbusTcpServer:ListenPort"));
@@ -56,7 +57,13 @@ internal class Program
 
         // 3. 实例化服务端对象
         var serverClient = new ModbusTcpServerClient(listenIp, listenPort);
-            
+// 注册control+C
+        Console.CancelKeyPress += async (sender, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            await serverClient.StopAsync();
+        };
+        
         // 4. 启动轮询定时器（此时 _isConnected 为 false，定时器不会真正发包，直到连接建立）
         serverClient.StartPolling(unitId, startAddr, quantity, interval);
 

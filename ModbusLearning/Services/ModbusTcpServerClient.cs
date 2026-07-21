@@ -51,22 +51,30 @@ public class ModbusTcpServerClient
                 var acceptTask = _listener.AcceptTcpClientAsync();
                 // 阻塞等待客户端连接
                 var completedTask = await Task.WhenAny(acceptTask, Task.Delay(Timeout.Infinite, _cts.Token));
-
+                //如果要求取消
                 if (_cts.Token.IsCancellationRequested) break;
-                
+
                 _remoteClient = await _listener.AcceptTcpClientAsync();
                 _stream = _remoteClient.GetStream();
                 _isConnected = true;
+
                 Logger.Info("远程从站已成功连接！");
                 Console.WriteLine("远程从站已成功连接！");
 
                 // 启动接收循环（和之前 TCP 客户端逻辑完全一样）
                 _ = ReceiveLoopAsync();
             }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                break;
+            }
             catch (Exception ex)
             {
                 Logger.Error($"等待连接异常: {ex.Message}");
-                await Task.Delay(3000); // 异常后等待3秒再重新开始监听
+                await Task.Delay(3000, _cts.Token).ContinueWith(t =>
+                {
+                    //忽略取消时的异常
+                }); // 异常后等待3秒再重新开始监听
             }
         }
     }
@@ -76,6 +84,7 @@ public class ModbusTcpServerClient
     {
         _pollingTimer = new System.Threading.Timer(_ =>
         {
+            if (_cts.IsCancellationRequested) return;
             SendReadRequest(unitId, startAddr, quantity);
         }, null, 0, intervalMs);
 
@@ -88,7 +97,7 @@ public class ModbusTcpServerClient
     {
         try
         {
-            // **关键检查**：只有远程设备连上来了，才能发送请求
+            // 关键检查：只有远程设备连上来了，才能发送请求
             if (!_isConnected || _remoteClient == null || !_remoteClient.Connected)
             {
                 // 如果没连上，直接静默返回，等到下一次轮询再尝试（不报错刷屏）
@@ -129,15 +138,10 @@ public class ModbusTcpServerClient
     {
         try
         {
-            while (_isConnected && _remoteClient.Connected)
+            while (_isConnected && _remoteClient.Connected && !_cts.IsCancellationRequested)
             {
-                int bytesRead = await _stream.ReadAsync(_readBuffer, 0, _readBuffer.Length);
-                if (bytesRead == 0)
-                {
-                    // 读到了0字节，说明对方优雅关闭了连接
-                    break;
-                }
-
+                int bytesRead = await _stream.ReadAsync(_readBuffer, 0, _readBuffer.Length,_cts.Token);
+                if (bytesRead == 0) break; // 远程关闭连接
                 _cacheBuffer.AddRange(_readBuffer.Take(bytesRead));
 
                 while (true)
@@ -150,10 +154,13 @@ public class ModbusTcpServerClient
 
                     byte[] fullPacket = _cacheBuffer.Take(expectedFullLength).ToArray();
                     _cacheBuffer.RemoveRange(0, expectedFullLength);
-
                     ProcessPacket(fullPacket);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Info("接收循环已取消(非报错)");
         }
         catch (Exception ex)
         {
@@ -196,10 +203,28 @@ public class ModbusTcpServerClient
 
                 _ = Task.Run(async () =>
                 {
+                    if (_cts.IsCancellationRequested) return;
                     try { await DatabaseService.InsertSensorDataAsync(data); }
                     catch (Exception e) { Logger.Error($"数据库写入失败:{e.Message}"); }
                 });
             }
         }
+    }
+    
+    public async Task StopAsync()
+    {
+        Console.WriteLine("正在停止Modbus服务端...");
+// 发送停止信号
+        _cts.Cancel();
+// 停止轮询定时器
+        _pollingTimer?.Dispose();
+        // 关闭底层连接和监听
+        _stream?.Close();
+        _remoteClient?.Close();
+        _listener?.Stop();
+        
+        Logger.Info("Modbus 服务端已完全停止服务");
+        Console.WriteLine("Modbus 服务端已完全停止");
+        await Task.CompletedTask;
     }
 }
