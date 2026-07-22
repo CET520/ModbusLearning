@@ -52,11 +52,10 @@ internal class Program
 
         // 5. 启动服务端监听（这是一个死循环，会阻塞在这里等待远程连接）
         await serverClient.StartServerAsync();
-
-        Console.WriteLine("程序已停止。");
         Console.ReadLine();
     }
     
+    // RTU协议的Modbus
     private static async Task RunRtuModeAsync()
     {
         Console.WriteLine("=== Modbus RTU (串口) 数据采集模式 ===");
