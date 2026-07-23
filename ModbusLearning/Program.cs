@@ -1,6 +1,7 @@
 ﻿using System.IO.Ports;
 using ModbusLearning.Services;
 using ModbusLearning.Utils;
+using Org.Apache.Rocketmq;
 
 namespace ModbusLearning;
 // 主程序入口
@@ -11,6 +12,7 @@ internal class Program
         Console.WriteLine("=== 项目运行菜单 ===");
         Console.WriteLine("1、运行TCP协议的Modbus");
         Console.WriteLine("2、运行RTU协议的Modbus");
+        Console.WriteLine("3、RocketMQ运行测试");
 
         var choice = Console.ReadLine();
         
@@ -21,6 +23,10 @@ internal class Program
         else if ("2" == choice)
         {
             await RunRtuModeAsync();
+        }
+        else if ("3" == choice)
+        {
+            await RocketMqTest();
         }
     }
 
@@ -87,5 +93,59 @@ internal class Program
         rtuClient.StartPolling(unitId, startAddr, quantity, interval);
 
         await Task.Delay(Timeout.Infinite, rtuClient.GetCancellationToken()); // 阻塞主线程，等待 Ctrl+C
+    }
+    
+    
+//  RocketMQ 消息发送测试
+    private static async Task RocketMqTest()
+    {
+        var endpoint = AppConfig.GetValue("RocketMqSettings:RocketMqEndpoint");
+        var accessKey = AppConfig.GetValue("RocketMqSettings:RocketMqAccessKey");
+        var secretKey = AppConfig.GetValue("RocketMqSettings:RocketMqSecretKey");
+        const string topic = "ModbusTopic";
+
+        Console.WriteLine("=== RocketMQ 消息发送测试 ===");
+        Console.WriteLine($"Endpoints地址: {endpoint}");
+
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
+        var credentialsProvider = new StaticSessionCredentialsProvider(accessKey, secretKey);
+// 客户端配置构建
+        var clientConfig = new ClientConfig.Builder()
+            .SetEndpoints(endpoint)
+            .SetCredentialsProvider(credentialsProvider)
+            .Build();
+        
+        // 构建生产者
+        var producer = await new Producer.Builder()
+            .SetTopics(topic)
+            .SetClientConfig(clientConfig)
+            .Build();
+
+        Console.WriteLine("RocketMQ 生产者启动成功");
+
+        try
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes("Hello RocketMQ from ModbusLearning!");
+            // 构建消息对象
+            var message = new Message.Builder()
+                .SetTopic(topic)
+                .SetBody(bytes)
+                .SetTag("TestTag")
+                .SetKeys("ModbusMessageKey")
+                .Build();
+//          生产者发送信息
+            var sendReceipt = await producer.Send(message);
+            Console.WriteLine($"消息发送成功！MessageId: {sendReceipt.MessageId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"消息发送失败: {ex.Message}");
+        }
+        finally
+        {
+            await producer.DisposeAsync();
+            Console.WriteLine("RocketMQ 生产者已关闭");
+        }
     }
 }

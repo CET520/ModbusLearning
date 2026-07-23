@@ -10,9 +10,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
+    <PackageReference Include="RocketMQ.Client" Version="5.2.1" />
     <PackageReference Include="System.IO.Ports" Version="11.0.0-preview.6.26359.118" />
-    <PackageReference Include="TouchSocket" Version="4.2.17" />
-    <PackageReference Include="TouchSocket.Modbus" Version="4.2.17" />
   </ItemGroup>
 
   <ItemGroup>
